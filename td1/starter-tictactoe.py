@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+import random
 import time
 import Tictactoe 
 from random import randint, choice
@@ -47,16 +47,19 @@ def demo():
     print(board)
 
 
-def explore_all(board, games=0, nodes=0):
+def explore_all(board, display=True, games=[0], nodes=[0]):
     for move in board.legal_moves():
         board.push(move)
-        nodes += 1
+        nodes[0] += 1
         if board.is_game_over():
             board.pop()
-            games += 1
+            games[0] += 1
         else:
-            games, nodes = explore_all(board, games, nodes)
+            explore_all(board, False)
             board.pop()
+
+    if display:
+        print(f"games {games[0]}, nodes {nodes[0]}")
     return games, nodes
 
 
@@ -86,6 +89,7 @@ def min_max(board, func_to_use=max, display=True, games=[0], nodes=[0]):
 
     return func_to_use(values)
 
+
 def search_winning(board, display=True, games=[0], nodes=[0]):
     values = []
     for move in board.legal_moves():
@@ -103,7 +107,6 @@ def search_winning(board, display=True, games=[0], nodes=[0]):
 
     if display:
         print(f"games {games[0]}, nodes {nodes[0]}")
-
     return max(values)
 
 
@@ -142,11 +145,17 @@ def measure_time(fn, args):
 
 if __name__ == "__main__":
     board = Tictactoe.Board()
+    random.seed(2)
+
+    board.push(RandomMove(board))
+    board.push(RandomMove(board))
+    board.push(RandomMove(board))
+    board.push(RandomMove(board))
+    board.push(RandomMove(board))
+    board.push(RandomMove(board))
+    print(board)
+    explore_all(board)
     winning = search_winning(board)
     print(f"Winning: {winning}")
-    opt_winning = search_winning_opt(board)
-    print(f"Optimized winning {opt_winning}")
-    # print(f"Winning: {winning}. Explored {games} boards ({nodes} nodes)")
-    # games, nodes = measure_time(explore_all, board)
-    # print(f"Explored {games} boards ({nodes} nodes)")
+
 
