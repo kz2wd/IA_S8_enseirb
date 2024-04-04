@@ -47,12 +47,14 @@ def depth_search(board, d=0, max_depth=None, display=True, nodes=[0], games=[0])
     return
 
 
-def measure_time(fn, args):
-    start = time.time_ns()
-    result = fn(args)
-    end = time.time_ns()
-    print(f"Took {(end - start) * 1e-9}s")
-    return result
+def measure_time(fn):
+    def decorated(*args, **kwargs):
+        start = time.perf_counter_ns()
+        result = fn(*args, **kwargs)
+        end = time.perf_counter_ns()
+        print(f"Took {(end - start) * 1e-9}s")
+    return decorated
+
 
 
 pieces_values = {
@@ -103,18 +105,25 @@ def pawn_bonus(piece: chess.Piece, square):
 
 
 PAWN_BONUS_FACTOR = 0.05
+CHECK_VALUE = 0.5
 
 
 def heuristique(board):
+    if board.is_game_over():
+        return score_over(board)
     s = 0
     for square, piece in board.piece_map().items():
         s += get_piece_value(piece.symbol())
         if piece.symbol().lower() == chess.piece_symbol(chess.PAWN):
             s += pawn_bonus(piece, square) * PAWN_BONUS_FACTOR
+    if board.is_check():
+        s += -CHECK_VALUE if board.turn else CHECK_VALUE
     return s
 
 
 WINNER_VALUE = 10e6
+
+
 def score_over(board):
     outcome = board.outcome()
     if outcome is None:
@@ -130,11 +139,8 @@ def minimax(board, depth, selector=max):
     def swap():
         return min if selector == max else max
 
-    if depth <= 0:
+    if depth <= 0 or board.is_game_over():
         return heuristique(board)
-
-    if board.is_game_over():
-        return score_over(board)
 
     values = []
     for move in board.legal_moves:
@@ -147,28 +153,44 @@ def minimax(board, depth, selector=max):
     return extremum
 
 
-def alpha_beta(board, depth, alpha=-10e10, beta=10e10, selector=max):
+class OutOfTimeException(Exception):
+    pass
+
+
+def alpha_beta(board, depth, alpha=-10e10, beta=10e10, selector=max, time_remaining=None):
+    if time_remaining is not None:
+        start = time.perf_counter()
+
     def swap():
         return min if selector == max else max
 
-    if depth <= 0:
-        return heuristique(board), alpha, beta
-
-    if board.is_game_over():
-        return score_over(board), alpha, beta
+    if depth <= 0 or board.is_game_over():
+        h = heuristique(board)
+        return h, alpha, beta, board.is_game_over(), h
 
     values = []
+    reached_end = True  # Only used if there are no legal moves
+    best_board = 0
     for move in board.legal_moves:
         board.push(move)
-        value, alpha, beta = alpha_beta(board, depth - 1, alpha, beta, selector=swap())
+
+        if time_remaining is not None:
+            end = time.perf_counter()
+            time_remaining -= end - start
+            if time_remaining < 0:
+                raise OutOfTimeException()
+
+        value, alpha, beta, reached_end, best_board = alpha_beta(board, depth - 1, alpha, beta, selector=swap(), time_remaining=time_remaining)
+        if time_remaining is not None:
+            start = time.perf_counter()
         board.pop()
         # Pruning phase
         if selector == min:
             if value <= alpha:
-                return alpha, alpha, beta
+                return alpha, alpha, beta, reached_end, best_board
         else:
             if value >= beta:
-                return beta, alpha, beta
+                return beta, alpha, beta, reached_end, best_board
 
         values.append(value)
 
@@ -180,7 +202,7 @@ def alpha_beta(board, depth, alpha=-10e10, beta=10e10, selector=max):
     else:
         beta = min(beta, extremum)
 
-    return extremum, alpha, beta
+    return extremum, alpha, beta, reached_end, best_board
 
 
 def maximin(board, depth, selector=min):
@@ -195,22 +217,26 @@ def maximin(board, depth, selector=min):
         values.append((value, move))
 
     extremum = selector(values, key=operator.itemgetter(0))[0]
+    print(f"(minmax found {extremum:.2f})", end=" ")
     return choice(list(filter(lambda v: v[0] == extremum, values)))[1]
 
 
-def max_alpha(board, depth, selector=min):
+def max_alpha(board, depth, selector=min, total_time=None):
     def swap():
         return min if selector == max else max
 
+    reached_end = True  # Only used if there are no legal moves
+    best_board = 0
     values = []
     for move in board.legal_moves:
         board.push(move)
-        value, _, _ = alpha_beta(board, depth - 1, selector=swap())
+        value, _, _, reached_end, best_board = alpha_beta(board, depth - 1, selector=swap(), time_remaining=total_time)
         board.pop()
         values.append((value, move))
 
     extremum = selector(values, key=operator.itemgetter(0))[0]
-    return choice(list(filter(lambda v: v[0] == extremum, values)))[1]
+    print(f"(alphabeta found {extremum:.2f})", end=" ")
+    return choice(list(filter(lambda v: v[0] == extremum, values)))[1], best_board, reached_end
 
 
 def iter_deep(board, available_time, selector=max):
@@ -219,13 +245,18 @@ def iter_deep(board, available_time, selector=max):
 
     depth = 1
     time_took = 0
-    while available_time > time_took:
-        start = time.perf_counter()
-        best_estimation = max_alpha(board, depth, selector=selector)
-        end = time.perf_counter()
-        time_took += end - start
-        depth += 1
-    print(f"iter_deep took {time_took} seconds, reached depth {depth}.")
+    reached_end = False
+    board_value = "unknown"
+    try:
+        while available_time > time_took and not reached_end:
+            start = time.perf_counter()
+            best_estimation, board_value, reached_end = max_alpha(board, depth, selector=selector, total_time=available_time)
+            end = time.perf_counter()
+            time_took += end - start
+            depth += 1
+    except OutOfTimeException as ignored:
+        pass
+    print(f"iter_deep took {time_took} seconds, reached depth {depth} ({reached_end=}), board estimated : {board_value}.")
     return best_estimation
 
 
@@ -238,19 +269,21 @@ def minmax_player(level, is_player1=True):
 
 
 def alpha_beta_player(level, is_player1=True):
-    return lambda b: max_alpha(b, level, max if is_player1 else min)
+    return lambda b: max_alpha(b, level, max if is_player1 else min)[0]
 
 
 def iter_deep_player(available_time, is_player1=True):
     return lambda b: iter_deep(b, available_time, max if is_player1 else min)
 
 
+@measure_time
 def play_match(board, player1, player2, max_length=500):
 
     def swap_players():
         return player1 if current_player == player2 else player2
 
     current_player = player1
+    white = True
     game_length = 0
     while not board.is_game_over():
         move = current_player(board)
@@ -258,17 +291,18 @@ def play_match(board, player1, player2, max_length=500):
 
         current_player = swap_players()
         game_length += 1
-        print(game_length, move, heuristique(board))
+        print(f"{'white' if white else 'black'} plays", move, game_length, f"{heuristique(board):.2f}")
         print(board)
+        # input()
 
         if game_length > max_length:
             print("game too long !")
             return
-
-    print(f"Game over in {game_length} moves")
+        white = not white
+    print(f"{board.outcome().result()} in {game_length} moves")
 
 
 if __name__ == "__main__":
     board = chess.Board()
-    play_match(board, alpha_beta_player(4), minmax_player(1, False))
+    play_match(board, alpha_beta_player(4), alpha_beta_player(7, is_player1=False))
 
