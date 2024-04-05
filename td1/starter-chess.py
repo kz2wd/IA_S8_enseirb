@@ -166,7 +166,7 @@ def alpha_beta(board, depth, alpha=-10e10, beta=10e10, selector=max, time_remain
 
     if depth <= 0 or board.is_game_over():
         h = heuristique(board)
-        return h, alpha, beta, board.is_game_over(), h
+        return h, board.is_game_over(), h
 
     values = []
     reached_end = True  # Only used if there are no legal moves
@@ -178,31 +178,28 @@ def alpha_beta(board, depth, alpha=-10e10, beta=10e10, selector=max, time_remain
             end = time.perf_counter()
             time_remaining -= end - start
             if time_remaining < 0:
+                print('out of time')
                 raise OutOfTimeException()
+        # if time_remaining is not None:
+        #     start = time.perf_counter()
+        value, reached_end, best_board = alpha_beta(board, depth - 1, alpha, beta, selector=swap(), time_remaining=time_remaining)
 
-        value, alpha, beta, reached_end, best_board = alpha_beta(board, depth - 1, alpha, beta, selector=swap(), time_remaining=time_remaining)
-        if time_remaining is not None:
-            start = time.perf_counter()
         board.pop()
-        # Pruning phase
-        if selector == min:
-            if value <= alpha:
-                return alpha, alpha, beta, reached_end, best_board
-        else:
-            if value >= beta:
-                return beta, alpha, beta, reached_end, best_board
+
+        if selector == min:  # min : enemy is choosing, we update upper_bound (beta)
+            beta = min(beta, value)
+            if alpha >= beta:
+                return value, reached_end, best_board
+        else:  # max : ally is choosing, we update lower_bound (alpha)
+            alpha = max(alpha, value)
+            if alpha >= beta:
+                return value, reached_end, best_board
 
         values.append(value)
 
     extremum = selector(values)
 
-    # Update pruning values
-    if selector == min:
-        alpha = max(alpha, extremum)
-    else:
-        beta = min(beta, extremum)
-
-    return extremum, alpha, beta, reached_end, best_board
+    return extremum, reached_end, best_board
 
 
 def maximin(board, depth, selector=min):
@@ -224,18 +221,18 @@ def maximin(board, depth, selector=min):
 def max_alpha(board, depth, selector=min, total_time=None):
     def swap():
         return min if selector == max else max
-
+    board = board.copy()
     reached_end = True  # Only used if there are no legal moves
     best_board = 0
     values = []
     for move in board.legal_moves:
         board.push(move)
-        value, _, _, reached_end, best_board = alpha_beta(board, depth - 1, selector=swap(), time_remaining=total_time)
+        value, reached_end, best_board = alpha_beta(board, depth - 1, selector=swap(), time_remaining=total_time)
         board.pop()
         values.append((value, move))
 
     extremum = selector(values, key=operator.itemgetter(0))[0]
-    print(f"(alphabeta found {extremum:.2f})", end=" ")
+    # print(f"(alphabeta found {extremum:.2f})", end=" ")
     return choice(list(filter(lambda v: v[0] == extremum, values)))[1], best_board, reached_end
 
 
@@ -304,5 +301,5 @@ def play_match(board, player1, player2, max_length=500):
 
 if __name__ == "__main__":
     board = chess.Board()
-    play_match(board, alpha_beta_player(4), alpha_beta_player(7, is_player1=False))
+    play_match(board, iter_deep_player(2), random_player)
 
