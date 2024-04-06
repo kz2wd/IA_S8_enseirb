@@ -1,5 +1,7 @@
 import operator
+import signal
 import time
+
 import chess
 from random import randint, choice
 
@@ -157,10 +159,7 @@ class OutOfTimeException(Exception):
     pass
 
 
-def alpha_beta(board, depth, alpha=-10e10, beta=10e10, selector=max, time_remaining=None):
-    if time_remaining is not None:
-        start = time.perf_counter()
-
+def alpha_beta(board, depth, alpha=-10e10, beta=10e10, selector=max):
     def swap():
         return min if selector == max else max
 
@@ -173,16 +172,7 @@ def alpha_beta(board, depth, alpha=-10e10, beta=10e10, selector=max, time_remain
     best_board = 0
     for move in board.legal_moves:
         board.push(move)
-
-        if time_remaining is not None:
-            end = time.perf_counter()
-            time_remaining -= end - start
-            if time_remaining < 0:
-                print('out of time')
-                raise OutOfTimeException()
-        # if time_remaining is not None:
-        #     start = time.perf_counter()
-        value, reached_end, best_board = alpha_beta(board, depth - 1, alpha, beta, selector=swap(), time_remaining=time_remaining)
+        value, reached_end, best_board = alpha_beta(board, depth - 1, alpha, beta, selector=swap())
 
         board.pop()
 
@@ -218,7 +208,7 @@ def maximin(board, depth, selector=min):
     return choice(list(filter(lambda v: v[0] == extremum, values)))[1]
 
 
-def max_alpha(board, depth, selector=min, total_time=None):
+def max_alpha(board, depth, selector=min):
     def swap():
         return min if selector == max else max
     board = board.copy()
@@ -227,7 +217,7 @@ def max_alpha(board, depth, selector=min, total_time=None):
     values = []
     for move in board.legal_moves:
         board.push(move)
-        value, reached_end, best_board = alpha_beta(board, depth - 1, selector=swap(), time_remaining=total_time)
+        value, reached_end, best_board = alpha_beta(board, depth - 1, selector=swap())
         board.pop()
         values.append((value, move))
 
@@ -236,7 +226,14 @@ def max_alpha(board, depth, selector=min, total_time=None):
     return choice(list(filter(lambda v: v[0] == extremum, values)))[1], best_board, reached_end
 
 
+def out_of_time_handler(signum, frame):
+    print("Time is over")
+    raise OutOfTimeException
+
+
 def iter_deep(board, available_time, selector=max):
+    signal.signal(signal.SIGALRM, out_of_time_handler)
+    signal.alarm(available_time)
 
     best_estimation = choice(list(board.legal_moves))
 
@@ -247,12 +244,15 @@ def iter_deep(board, available_time, selector=max):
     try:
         while available_time > time_took and not reached_end:
             start = time.perf_counter()
-            best_estimation, board_value, reached_end = max_alpha(board, depth, selector=selector, total_time=available_time)
+            best_estimation, board_value, reached_end = max_alpha(board, depth, selector=selector)
             end = time.perf_counter()
             time_took += end - start
             depth += 1
+
+        signal.alarm(0)
     except OutOfTimeException as ignored:
         pass
+
     print(f"iter_deep took {time_took} seconds, reached depth {depth} ({reached_end=}), board estimated : {board_value}.")
     return best_estimation
 
@@ -301,5 +301,5 @@ def play_match(board, player1, player2, max_length=500):
 
 if __name__ == "__main__":
     board = chess.Board()
-    play_match(board, iter_deep_player(2), random_player)
+    play_match(board, iter_deep_player(10), alpha_beta_player(3, is_player1=False))
 
