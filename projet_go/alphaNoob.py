@@ -6,6 +6,7 @@ Right now, this class contains the copy of the randomPlayer. But you have to cha
 '''
 import operator
 import sys
+import copy
 
 import Goban
 from random import choice
@@ -23,14 +24,15 @@ class myPlayer(PlayerInterface):
         self._mycolor = None
 
     def getPlayerName(self):
-        return "Mini mini v0 "
+        return "Alpaga"
 
     def getPlayerMove(self):
         if self._board.is_game_over():
             print("Referee told me to play but the game is over!")
             return "PASS"
+
         # 1 is black player (first to play), 2 is white player (2nd to play)
-        move = self.maximin(self._board, 1, max if self._mycolor == 1 else min)
+        move = self.max_alpha(self._board, 1, max if self._mycolor == 1 else min)
         self._board.push(move)
 
         # New here: allows to consider internal representations of moves
@@ -55,38 +57,57 @@ class myPlayer(PlayerInterface):
         else:
             print("I lost :(!!")
 
-    def minimax(self, board: Goban.Board, depth: int, selector=max):
+    def max_alpha(self, board, depth, selector=min):
         def swap():
             return min if selector == max else max
 
-        if depth <= 0 or board.is_game_over():
-            return self.heuristique(board)
-
+        board = Goban.Board(board)
+        reached_end = True  # Only used if there are no legal moves
+        best_board = 0
         values = []
         for move in board.legal_moves():
             board.push(move)
-            value = self.minimax(board, depth - 1, selector=swap())
-            board.pop()
-            values.append(value)
-
-        extremum = selector(values)
-        return extremum
-
-    def maximin(self, board: Goban.Board, depth: int, selector=min):
-        def swap():
-            return min if selector == max else max
-
-        values = []
-        for move in board.legal_moves():
-            board.push(move)
-            value = self.minimax(board, depth - 1, selector=swap())
+            value, reached_end, best_board = self.alpha_beta(board, depth - 1, selector=swap())
             board.pop()
             values.append((value, move))
 
         extremum = selector(values, key=operator.itemgetter(0))[0]
-        # print(f"values :  : {values}", file=sys.stderr)
-        return choice(list(filter(lambda v: v[0] == extremum, values)))[1]
+        return choice(list(filter(lambda v: v[0] == extremum, values)))[1] #, best_board, reached_end
 
+    def alpha_beta(self, board, depth, alpha=-10e10, beta=10e10, selector=max):
+        def swap():
+            return min if selector == max else max
+
+        if depth <= 0 or board.is_game_over():
+            h = self.heuristique(board)
+            return h, board.is_game_over(), h
+
+        values = []
+        reached_end = True  # Only used if there are no legal moves
+        best_board = 0
+        for move in board.legal_moves():
+            board.push(move)
+            value, reached_end, best_board = self.alpha_beta(board, depth - 1, alpha, beta, selector=swap())
+
+            board.pop()
+
+            if selector == min:  # min : enemy is choosing, we update upper_bound (beta)
+                beta = min(beta, value)
+                if alpha >= beta:
+                    return value, reached_end, best_board
+            else:  # max : ally is choosing, we update lower_bound (alpha)
+                alpha = max(alpha, value)
+                if alpha >= beta:
+                    return value, reached_end, best_board
+
+            values.append(value)
+
+        extremum = selector(values)
+
+        return extremum, reached_end, best_board
+
+
+    # Very COSTLY
     def heuristique(self, board: Goban.Board):
         black_score, white_score = board.compute_score()
         return black_score - white_score
