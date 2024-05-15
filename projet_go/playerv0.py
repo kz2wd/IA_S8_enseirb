@@ -23,13 +23,13 @@ class myPlayer(PlayerInterface):
         self._mycolor = None
 
     def getPlayerName(self):
-        return "Random Player"
+        return "Mini mini v0 "
 
     def getPlayerMove(self):
         if self._board.is_game_over():
             print("Referee told me to play but the game is over!")
             return "PASS"
-        move = self.maximin(self._board, 1, min if self._mycolor == 1 else max)
+        move = self.maximin(self._board, 1, max if self._mycolor == 1 else min)
         self._board.push(move)
 
         # New here: allows to consider internal representations of moves
@@ -83,10 +83,9 @@ class myPlayer(PlayerInterface):
             values.append((value, move))
 
         extremum = selector(values, key=operator.itemgetter(0))[0]
-        print(f"values :  : {values}", file=sys.stderr)
-        input()
-        print(f"(minmax found {extremum:.2f})", end=" ")
+        # print(f"values :  : {values}", file=sys.stderr)
         return choice(list(filter(lambda v: v[0] == extremum, values)))[1]
 
     def heuristique(self, board: Goban.Board):
-        return board.compute_score()  # Heavy cost !
+        black_score, white_score = board.compute_score()
+        return black_score - white_score
