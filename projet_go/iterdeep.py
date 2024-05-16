@@ -8,6 +8,7 @@ import operator
 import signal
 import sys
 import time
+from functools import lru_cache
 
 import Goban
 from random import choice
@@ -43,7 +44,7 @@ class myPlayer(PlayerInterface):
             return "PASS"
 
         # 1 is black player (first to play), 2 is white player (2nd to play)
-        move = self.iter_deep(self._board, 5, max if self._mycolor == 1 else min)
+        move = self.iter_deep(self._board, 2, max if self._mycolor == 1 else min)
         self._board.push(move)
 
         # New here: allows to consider internal representations of moves
@@ -81,7 +82,7 @@ class myPlayer(PlayerInterface):
         try:
             while available_time > time_took and not reached_end:
                 start = time.perf_counter()
-                best_estimation, board_value, reached_end = self.max_alpha(board, depth, selector=selector)
+                best_estimation, reached_end, board_value = self.max_alpha(board, depth, selector=selector)
                 end = time.perf_counter()
                 time_took += end - start
                 depth += 1
@@ -109,7 +110,7 @@ class myPlayer(PlayerInterface):
             values.append((value, move))
 
         extremum = selector(values, key=operator.itemgetter(0))[0]
-        return choice(list(filter(lambda v: v[0] == extremum, values)))[1], best_board, reached_end
+        return choice(list(filter(lambda v: v[0] == extremum, values)))[1], reached_end, best_board
 
     def alpha_beta(self, board, depth, alpha=-10e10, beta=10e10, selector=max):
         def swap():
@@ -117,7 +118,7 @@ class myPlayer(PlayerInterface):
 
         if depth <= 0 or board.is_game_over():
             h = self.heuristique(board)
-            return h, board.is_game_over(), h
+            return h, False, h  # Broken, for now assume we never end.
 
         values = []
         reached_end = True  # Only used if there are no legal moves
