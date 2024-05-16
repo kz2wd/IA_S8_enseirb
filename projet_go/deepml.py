@@ -10,9 +10,14 @@ import sys
 import time
 from functools import lru_cache
 
+import numpy as np
+
 import Goban
 from random import choice
 from playerInterface import *
+
+import torch
+from torch import nn
 
 
 class OutOfTimeException(Exception):
@@ -34,9 +39,10 @@ class myPlayer(PlayerInterface):
     def __init__(self):
         self._board = Goban.Board()
         self._mycolor = None
+        self.init_model()
 
     def getPlayerName(self):
-        return "Gardener"
+        return "Flowerless"
 
     def getPlayerMove(self):
         if self._board.is_game_over():
@@ -144,7 +150,42 @@ class myPlayer(PlayerInterface):
 
         return extremum, reached_end, best_board
 
+    def init_model(self):
+        self.model = nn.Sequential(
+            nn.Conv2d(2, 10, 3, padding=1),  # 8 * 8 * 2 (128) -> 64 * 10 (640)
+            nn.ReLU(),
+            nn.Conv2d(10, 10, 5, padding=2),  # 640 -> 640
+            nn.ReLU(),
+            nn.Conv2d(10, 10, 5, padding=2),  # 640 -> 640
+            nn.ReLU(),
+            nn.Flatten(start_dim=1),  # 640 -> 640
+            nn.Linear(640, 300),
+            nn.ReLU(),
+            nn.Linear(300, 100),
+            nn.ReLU(),
+            nn.Linear(100, 10),
+            nn.ReLU(),
+            nn.Linear(10, 1),
+            nn.Sigmoid(),
+        )
+        device = torch.device("cpu")
+        self.model.load_state_dict(torch.load('trained_model.pth', map_location=device))
+
+        self.model.to(device)
+        self.model.eval()
+
+
     # Very COSTLY
     def heuristique(self, board: Goban.Board):
-        black_score, white_score = board.compute_score()
-        return black_score - white_score
+        blacks = np.zeros((8, 8))
+        whites = np.zeros((8, 8))
+        for x in range(8):
+            for y in range(8):
+                val = board[Goban.Board.flatten((x, y))]
+                if val == Goban.Board._BLACK:
+                    blacks[x, y] = 1
+                elif val == Goban.Board._WHITE:
+                    whites[x, y] = 1
+
+        X = torch.Tensor([[blacks, whites]])
+        return self.model(X)[0]
